@@ -1,3 +1,9 @@
+"""
+    Some evulations of Recommender Systems
+"""
+
+
+
 from math import log2
 from multiprocessing.pool import Pool
 from random import shuffle
