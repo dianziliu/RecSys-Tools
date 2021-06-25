@@ -1,22 +1,71 @@
 """
-    Data Reader 
-    用户处理划分数据集，要求数据集采用csv格式存储，
-    标题字段有：['userId','movieId','rating',...]
-    train_file:[u:用户,i:正样本,j:相似样本,k:负样本]
-    test_file:['userId','movieId','rating',...]
-    ng:dict[userId:[k:负样本]]
+version：0.0.1
+author：刘俊锐
+功能：提供了多种工具用于划分数据集
 """
 
+from itertools import count
 from random import choices,choice,randint
 
 import joblib
+from numpy.lib import index_tricks
+from numpy.lib.arraysetops import isin
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-"ratings.csv","::"
-"PR\\train_file.csv"
-"PR\\test_file.csv"
-"PR\\test_ng.dict"
+# 就不在这里支持多线程了。可以提供一个工具
+from multiprocessing import Pool,cpu_count
+
+
+def splitData(mode,data_path,epoch=1,dir="",**kwargs):
+    """一个总的接口，用于划分数据集
+    mode: 用于指定划分方式
+    data_path：指定数据地址
+    epoch：划分次数
+        """
+    methods={
+        "sample":splitData_sample
+    }
+    df=pd.read_csv(data_path)
+    if epoch==1:
+        return methods[mode](kwargs)
+
+    # 多线程处理数据
+    
+    # 防止占满后卡死
+    p=Pool(min(epoch,cpu_count()-2))
+
+    for i in range(epoch):
+        p.apply_async(methods[mode](kwargs))
+    p.close()
+    p.join()
+    
+    
+
+def splitData_sample(df,test_size,dump=False,train_path="",test_path="",key=None):
+    """
+        简单的划分数据集，不做任何额外处理
+        """
+    train_size=1-test_size
+    if not key:
+        train_data=df.sample(frac=train_size)
+        test_data=df[~df.index.isin(train_data.index)]
+    else:
+        train_data=[]
+        test_data=[]
+        for id,group in df.groupby([key]):
+            this_train_data=group.sample(frac=train_size)
+            train_data.append(this_train_data)
+            test_size.append(group[~group.index.isin(this_train_data.index)])
+        train_data=pd.concat(train_data)
+        test_data=pd.concat(test_data)
+    if dump:
+        train_data.to_csv(train_path,index=False)
+        test_data.to_csv(test_path,index=False)
+    return train_data,test_data
+
+
+
 
 def process_data_by_numN(path,sep,n_items,N,train_path,test_path,ngs_path,n_ng=4):
 
@@ -59,7 +108,6 @@ def process_data_by_numN(path,sep,n_items,N,train_path,test_path,ngs_path,n_ng=4
     joblib.dump(d,test_ng)
 
   
-
 def process_data_with_ngs(path,sep,n_items,train_path,test_path,ngs_path,test_size=0.2,n_ng=4):
 
     df=pd.read_csv(path,sep=sep)
