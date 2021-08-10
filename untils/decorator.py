@@ -26,9 +26,10 @@ def logger(begin_message: str = None, log_args: Tuple[str] = None,
         @wraps(f)
         def decorated(*args, **kwargs):
             global deep
+            
             if begin_message is not None:
                 print(chap*deep+begin_message, end='\n' if log_args is None else '  ')
-                deep+=1
+            deep+=1
             if log_args is not None:
                 arg_logs = [arg_name + '=' + str(arg_value(arg_name, f, args, kwargs)) for arg_name in log_args]
                 print(', '.join(arg_logs))
@@ -36,9 +37,10 @@ def logger(begin_message: str = None, log_args: Tuple[str] = None,
             start_time = time.time()
             result = f(*args, **kwargs)
             spent_time = time.time() - start_time
-
+            
+            deep-=1
             if end_message is not None:
-                deep-=1
+                
                 print(chap*deep+end_message)
                 
             if log_time:
