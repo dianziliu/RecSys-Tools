@@ -1,17 +1,60 @@
 """
     Some evulations of Recommender Systems
+    XXX_evualtion 为封装好的接口，用于评价指标计算
+    XXX_s 加入了对多K值的处理
+    TODO：使用多线程进行加速计算
 """
 
 
 
+from collections import defaultdict
 from math import log2
-from multiprocessing.pool import Pool
 from random import shuffle
 
 import joblib
 import numpy as np
+from numpy.lib.function_base import sort_complex
 import pandas as pd
-from tqdm import tqdm, tqdm_pandas
+from pandas.core.groupby.generic import ScalarResult
+from tqdm import tqdm
+
+def evulation(model,n_items,test_path,evulation_mode:dict)->dict:
+    """
+        总的封装函数，通过传入训练好的模型，测试集和需要计算的评价指标，得到dict类型的返回结果。
+        model：
+            1. 要求支持 predict方法。（最好支持predicts方法，批量进行预测）
+            2. 要求支持 name属性
+        test_path：
+            1. 要求以csv文件格式进行存储，用userId，movieId，rating字段进标识。
+    """
+    evulation_method={
+        "ndcg":nDCGs,
+        "aps":APs,
+    }
+    df = pd.read_csv(test_path)
+    # 结果暂存
+    scores_s=[]
+    ids_s=[]
+
+    # 计算预测值
+    for uid, group in df.groupby(["userId"]):
+        scores = []
+        # TODO：这里可以使用predicts方法进行加速
+        for i in range(n_items):
+            scores.append([i, model.predict(uid, i), 0])
+        # ids 为用户历史行为
+        ids = group.movieId.unique()
+        for row, one in group.iterrows():
+            u, i, r = [one["userId"], one["movieId"], one["rating"]]
+            scores[i][2]=r
+        shuffle(scores)
+        scores_s.append(scores)
+        ids_s.append(ids)
+    res=dict()
+    # 计算每一个指标
+    for k,v in evulation_mode.items():
+        res[k]=evulation_method[k](v,scores_s,ids_s)
+    pass
 
 
 def AP(K,scores, ids):
@@ -32,12 +75,26 @@ def AP(K,scores, ids):
     else:
         return sum/hits
 
-def MAP_evulation_Alls(model, Ks:list, test_path,n_itmes):
-    aps=dict()
-    for K in Ks:
-        aps[K]=[]
-    df = pd.read_csv(test_path)
 
+def APs(Ks, scores_s, ids_s):
+    aps = dict()
+    for k in Ks:
+        aps[k] = []
+        for scores, ids in zip(scores_s, ids_s):
+            aps[k].append(AP(k, scores, ids))
+    return aps
+
+def MAP_evulation_Alls(model, Ks:list, test_path,n_itmes,show=True):
+    """
+
+    """
+ 
+    df = pd.read_csv(test_path)
+    # 结果暂存
+    scores_s=[]
+    ids_s=[]
+
+    # 计算预测值
     for uid, group in df.groupby(["userId"]):
         scores = []
         for i in range(n_itmes):
@@ -48,11 +105,16 @@ def MAP_evulation_Alls(model, Ks:list, test_path,n_itmes):
             u, i, r = [one["userId"], one["movieId"], one["rating"]]
             scores[i][2]=r
         shuffle(scores)
-        for K in Ks:
-            aps[K].append(AP(K,scores,ids))
-    for K in Ks:
-        print("model{0} mAP@{1}:{2}".format(model.name, K, np.mean(aps[K])))
+        scores_s.append(scores)
+        ids_s.append(ids)
+    # 
+    aps=APs(Ks,scores_s,ids_s)
 
+    # 打印结果
+    if show:
+        for K in Ks:
+            print("model{0} mAP@{1}:{2}".format(model.name, K, np.mean(aps[K])))
+    return aps
 
 
 def DCG(K, l, w,method=0):
@@ -84,39 +146,34 @@ def nDCG(K, l,method=0):
     idcg = iDCG(K, l, w,method)
     return dcg/idcg
 
+def nDCGs(Ks,ls,method=0):
+    res=dict()
+    for k in Ks:
+        res[k]=[]
+        for l in ls:
+            res[k].append(nDCG(k,l,method))
+    return res
 
-def Precision_Recall(K,scores,right):
-    s=sorted(scores,key=lambda x: x[1],reverse=True)
-    s=[i[0] for i in s[:K]]
-    m=set(s) & set(right)
-    p=len(m)/K
-    r=len(m)/len(right)
-    return p,r
-
-
-def pr_evulation(model, K, test_path, test_ng):
-    precisions = []
-    recalls = []
-    df = pd.read_csv(test_path)
-    ngs = joblib.load(test_ng)
+def ndcg_evaluations(model, Ks, test_file,method=0,show=True):
+    # 将Ks统一为list进行处理
+    if not isinstance(Ks,list):
+        Ks=[Ks]
+    if not isinstance(Ks[0],int):
+        assert "Ks value must be 'int' type"
+    df = pd.read_csv(test_file)
+    scores_s=[]
     for uid, group in df.groupby(["userId"]):
         scores = []
+        for row,one in group.iterrows():
+            u, i, r = [one["userId"], one["movieId"], one["rating"]]
+            scores.append((i, model.predict(u, i), r))
+        # ndcgs.append(nDCG(K, scores,method))
+        scores_s.append(scores)
+    ndcgs=nDCGs(Ks,scores_s,method)
+    if show:
+        for k in Ks:
+            print("model{} nDCG@{}:{}".format(model.name, k, np.mean(ndcgs)))
 
-        ids = group.movieId.unique()
-
-        for i in ids:
-            scores.append((i, model.predict(uid, i)))
-
-        ng = ngs[uid]
-        for j in ng:
-            scores.append((i, model.predict(uid, j), 0))
-        shuffle(scores)
-        p, r = Precision_Recall(K, scores, ids)
-        precisions.append(p)
-        recalls.append(r)
-
-    print("model{} Precision@{}:{},Recall@{}:{}".format(
-        model.name, K, np.mean(precisions), K, np.mean(recalls)))
 
 
 def ndcg_evaluation(model, K, test_file,method=0):
@@ -133,11 +190,53 @@ def ndcg_evaluation(model, K, test_file,method=0):
 
 
 
-def pr_ndcg_evulation(model, K, test_path, test_ng):
+def Precision_Recall(K,scores,right):
+    s=sorted(scores,key=lambda x: x[1],reverse=True)
+    s=[i[0] for i in s[:K]]
+    m=set(s) & set(right)
+    p=len(m)/K
+    r=len(m)/len(right)
+    return p,r
+
+def Precision_Recalls(Ks,scores_s,right_s):
+    res=dict()
+    for k in Ks:
+        res[k]=[]
+        for scores,right in zip(scores_s,right_s):
+            res[k].append(Precision_Recall(k,scores,right))
+    return res
+
+def pr_evulation(model, K, test_path, test_ng):
     precisions = []
     recalls = []
-    ndcgs = []
     df = pd.read_csv(test_path)
+    ngs = joblib.load(test_ng)
+    for uid, group in df.groupby(["userId"]):
+        scores = []
+        ids = group.movieId.unique()
+        for i in ids:
+            scores.append((i, model.predict(uid, i)))
+        ng = ngs[uid]
+        for j in ng:
+            scores.append((i, model.predict(uid, j), 0))
+        shuffle(scores)
+        p, r = Precision_Recall(K, scores, ids)
+        precisions.append(p)
+        recalls.append(r)
+
+    print("model{} Precision@{}:{},Recall@{}:{}".format(
+        model.name, K, np.mean(precisions), K, np.mean(recalls)))
+
+
+
+
+def pr_ndcg_evulation(model, K, test_path, test_ng):
+    # 
+    precisions = []
+    recalls    = []
+    ndcgs      = []
+    #
+    df  = pd.read_csv(test_path)
     ngs = joblib.load(test_ng)
     for uid, group in df.groupby(["userId"]):
         scores = []
