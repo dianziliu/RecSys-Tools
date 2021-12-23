@@ -10,13 +10,16 @@
 from collections import defaultdict
 from math import log2
 from random import shuffle
+from warnings import showwarning
 
 import joblib
 import numpy as np
-from numpy.lib.function_base import sort_complex
 import pandas as pd
-from pandas.core.groupby.generic import ScalarResult
+from sklearn.metrics import precision_score, recall_score
 from tqdm import tqdm
+
+from .sampler import sampler
+
 
 def evulation(model,n_items,test_path,evulation_mode:dict)->dict:
     """
@@ -206,7 +209,62 @@ def Precision_Recalls(Ks,scores_s,right_s):
             res[k].append(Precision_Recall(k,scores,right))
     return res
 
+
+def Prec_Rec_evulation_sampler(model, K, train_path, test_path, n_items, mode,show=True):
+    """
+        实现了采样器的PR评价方法
+        K和mode组合使用，mode={"all",int_value}
+        
+    """
+    def pare_ngs(n_items, train_path, test_path, mode):
+        ngs = sampler(n_items, train_path, test_path, mode)
+        uids = []
+        iids = []
+        ratings = []
+        for k, v in ngs.items():
+            for iid in v:
+                uids.append(k)
+                iids.append(iid)
+                ratings.append(0)
+        ng_df = pd.DataFrame(
+            {"userId": uids,
+             "movieId": iids,
+             "rating": ratings}
+        )
+        return ng_df
+
+    precisions = []
+    recalls    = []
+
+    df1   = pd.read_csv(test_path)
+    df_ng = pare_ngs(n_items, train_path, test_path, mode)
+    df    = pd.concat([df1, df_ng])
+
+    for uid, group in df.groupby(["userId"]):
+        scores = []
+        ids = group.movieId.tolist()
+        labels = group.rating.tolist()
+        for i in ids:
+            scores.append((i,model.predict(uid, i)))
+        # 获取正样本，这样做点好处是可以分析哪些预测对了。
+        p_ids=[]
+        for i,lb in zip(ids,labels):
+            if lb!=0:
+                p_ids.append(i)
+        p, r = Precision_Recall(K, scores, p_ids)
+        precisions.append(p)
+        recalls.append(r)
+    if show:
+        print("model{} Precision@{}:{},Recall@{}:{}".format(
+            model.name, K, np.mean(precisions), K, np.mean(recalls)))
+    return precisions,recalls
+
+
 def pr_evulation(model, K, test_path, test_ng):
+    """
+        在推荐系统中，计算PR时需要区分是计算全集还是采样部分进行。
+        test_ng为joblib存储的列表对象，
+    """
     precisions = []
     recalls = []
     df = pd.read_csv(test_path)
@@ -226,7 +284,6 @@ def pr_evulation(model, K, test_path, test_ng):
 
     print("model{} Precision@{}:{},Recall@{}:{}".format(
         model.name, K, np.mean(precisions), K, np.mean(recalls)))
-
 
 
 
