@@ -7,7 +7,7 @@ from os import remove
 import pandas as pd
 import numpy as np
 
-from evulation import RMSE_and_MAE
+from evulation_methods.evulation import RMSE_and_MAE
 
 
 
