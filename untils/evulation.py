@@ -10,15 +10,87 @@
 from collections import defaultdict
 from math import log2
 from random import shuffle
-from warnings import showwarning
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import precision_score, recall_score
 from tqdm import tqdm
 
 from .sampler import sampler
+
+evulation_method={
+    "ndcg":nDCGs,
+    "aps":APs,
+    "PR":Precision_Recalls
+}
+
+def pare_ngs(n_items, train_path, test_path, mode):
+    """针对每个用户准备负样本，mode为'all'时进行全采样，否则mode应该为int数值，表示采样倍率"""
+    ngs = sampler(n_items, train_path, test_path, mode)
+    uids = []
+    iids = []
+    ratings = []
+    for k, v in ngs.items():
+        for iid in v:
+            uids.append(k)
+            iids.append(iid)
+            ratings.append(0)
+    ng_df = pd.DataFrame(
+        {"userId": uids,
+            "movieId": iids,
+            "rating": ratings}
+    )
+    return ng_df
+
+
+def evulation2(model,n_items,train_file,test_file,evulation_mode:dict,mode=None)->dict:
+    """ 评价指标的封装"""
+    # 1.加载测试集
+    ## 要求数据的格式为，userId,movieId,rating，...
+    df = pd.read_csv(test_file)
+
+    # 2. 按需要进行采样等操作
+    # mode为'all'时进行全采样，否则mode应该为int数值，表示采样倍率
+    if mode is not None:
+        df = pd.concat(
+            [df, pare_ngs(n_items, train_file, test_file, mode)]
+        )
+
+    # 3.计算预测值
+    scores_s=[]
+    ## 预测的物品id的集合
+    ids_s=[]
+    pos_items=[]
+    ## 计算预测值
+    for uid, group in df.groupby(["userId"]):
+        scores = []
+
+        ids = group.movieId.unique()
+        for row, one in group.iterrows():
+            u, i, r = [one["userId"], one["movieId"], one["rating"]]
+            scores.append([i, model.predict(uid, i), r])
+        shuffle(scores)
+        scores_s.append(scores)
+        ids_s.append(ids)  
+
+        # 获取正样本集合
+        pos_items.append(
+            group[group["rating"]>0].movieId.tolist()
+        )
+    # 4.计算评价指标
+    evulation_res=dict()
+    evulation_res["user"]=df.userId.tolist()
+    for k,v in evulation_mode:
+        # 需要定制化参数
+        # TODO: 这块还存在问题，如何统一
+        evulation_res[k]=evulation_method(k,scores_s,ids_s,pos_items)
+    
+    res_df=pd.DataFrame(evulation_res)
+
+    # 5. 结果分析
+    ##
+    return res_df
+
 
 
 def evulation(model,n_items,test_path,evulation_mode:dict)->dict:
@@ -30,10 +102,7 @@ def evulation(model,n_items,test_path,evulation_mode:dict)->dict:
         test_path：
             1. 要求以csv文件格式进行存储，用userId，movieId，rating字段进标识。
     """
-    evulation_method={
-        "ndcg":nDCGs,
-        "aps":APs,
-    }
+
     df = pd.read_csv(test_path)
     # 结果暂存
     scores_s=[]
@@ -216,22 +285,7 @@ def Prec_Rec_evulation_sampler(model, K, train_path, test_path, n_items, mode,sh
         K和mode组合使用，mode={"all",int_value}
         
     """
-    def pare_ngs(n_items, train_path, test_path, mode):
-        ngs = sampler(n_items, train_path, test_path, mode)
-        uids = []
-        iids = []
-        ratings = []
-        for k, v in ngs.items():
-            for iid in v:
-                uids.append(k)
-                iids.append(iid)
-                ratings.append(0)
-        ng_df = pd.DataFrame(
-            {"userId": uids,
-             "movieId": iids,
-             "rating": ratings}
-        )
-        return ng_df
+
 
     precisions = []
     recalls    = []

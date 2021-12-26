@@ -19,7 +19,7 @@ def arg_value(arg_name, f, args, kwargs):
     return inspect.signature(f).parameters[arg_name].default
 
 
-def logger(begin_message: str = None, log_args: Tuple[str] = None,
+def funcion_logger(begin_message: str = None, log_args: Tuple[str] = None,
            end_message: str = None, log_time: bool = True):
 
     def logger_decorator(f):
@@ -50,12 +50,14 @@ def logger(begin_message: str = None, log_args: Tuple[str] = None,
         return decorated
     return logger_decorator
 
-@logger("test",("x"),"finishede")
+@funcion_logger("test",("x"),"finishede")
 def test(x):
     print(x)
     test2("1")
 
-@logger("test",("x"),"finishede")
+
+
+@funcion_logger("test",("x"),"finishede")
 def test2(x):
     print("helo",x)
 if __name__=='__main__':
