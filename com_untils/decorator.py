@@ -21,7 +21,12 @@ def arg_value(arg_name, f, args, kwargs):
 
 def funcion_logger(begin_message: str = None, log_args: Tuple[str] = None,
            end_message: str = None, log_time: bool = True):
-
+    """
+        一个函数包装器，主要功能有：
+        1. 打印运行函数名
+        2. 在开始和结束时打印信息
+        3. 显示指定参数的值
+    """
     def logger_decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
